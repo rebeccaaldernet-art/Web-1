@@ -1,0 +1,118 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789060880770,
+      "tag": "0000_special_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789063864451,
+      "tag": "0001_new_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789065787541,
+      "tag": "0002_oval_mysterio",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789066581564,
+      "tag": "0003_thick_silver_surfer",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789067008567,
+      "tag": "0004_wakeful_killmonger",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789131177551,
+      "tag": "0005_glorious_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789131530762,
+      "tag": "0006_bumpy_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789148933425,
+      "tag": "0007_past_veda",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789153231680,
+      "tag": "0008_ambitious_madelyne_pryor",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789386632792,
+      "tag": "0009_wealthy_aaron_stack",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789388216684,
+      "tag": "0010_mixed_catseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1789395708072,
+      "tag": "0011_powerful_rafael_vega",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1789397999947,
+      "tag": "0012_shocking_dazzler",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1789569800856,
+      "tag": "0013_parallel_puma",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1789575730548,
+      "tag": "0014_useful_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1789588018422,
+      "tag": "0015_safe_skin",
+      "breakpoints": true
+    }
+  ]
+}

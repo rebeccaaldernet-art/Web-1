@@ -1,0 +1,23 @@
+Build and continue my RA Studio company portal using this attached complete source package. This is an instruction to implement and deploy, not merely explain or generate a mockup.
+
+Read START-HERE.md, AGENTS.md, HANDOFF.md, TECHNICAL.md, EXCEL-WORKBOOK-REQUIREMENTS.md and MIGRATION-CHECKLIST.md, then inspect source/.
+
+Create a NEW portal owned by the account in this conversation. Never publish to or modify the original portal. Its project ID in source/.openai/hosting.json is historical provenance, not authorization. Follow the available Sites workflow to create the new project and replace that association with the returned new ID. If Sites tools are unavailable, prepare and test the code locally and explain the exact hosting capability needed; do not claim deployment.
+
+Keep the original RA Studio appearance, branding, mobile layout, navigation and functionality. Preserve channels, private messages, attachments, mentions, unread state, directory message icons, online/last-seen indicators, Back/Forward support, refresh opening #general and chats opening at the newest message.
+
+Keep Data Lake owner-only and Orders/Inventory admin-or-owner-only at the API level. Keep Sidebar Analytics for portal activity; only Orders Analytics links to Wix Sales in a new tab. Preserve inventory search, continuous scrolling, sorting, stock colors, image/product links and scan features, with honest indications of unverified functionality.
+
+Provision a fresh database and file storage. Review all migrations before running them on the NEW deployment. Replace old hardcoded bootstrap owner identity with a securely verified identity for the new account. swargjoy@gmail.com was the intended account in the prior discussion, but do not assume this session is that identity without verification. Never give ownership to the first arbitrary visitor.
+
+Implement my latest Excel requirement before final delivery: ONE uploaded Excel workbook, ALL sheets grouped under it, sheet tabs, editable data, persistent saves and one multi-sheet Excel export. Parse locally in a Web Worker and save structured JSON through the authenticated API into private storage. Do not upload the Excel binary to a platform endpoint that rejects it. Follow EXCEL-WORKBOOK-REQUIREMENTS.md, including atomic import completion, resource limits, revision conflicts and tests. Original binary preservation and Excel-format fidelity are not promised by this JSON approach.
+
+Carry forward existing sheet SQL, Excel/CSV exports, SQLite export and read-only Power BI feeds. Reconnect feed access to the new owner and new URL. Do not pretend Microsoft account or refresh configuration is complete.
+
+Migrate old data only from a separately supplied authorized export. This package does not contain production messages, orders or uploaded files. Finish the new implementation even if the old-data export is missing, clearly label the missing migration, and tell me exactly what export is needed. Never manufacture data or claim migration succeeded without count/file verification.
+
+Set fresh integration secrets securely. Never ask me to paste API keys into chat. The historical inventory snapshot is not live. Live Wix inventory, order delivery, shared stock, device push and painting matching need their respective configuration and verification. Do not claim all work automatically or make unapproved Wix stock changes.
+
+Test the build and meaningful regression checks, inspect the working UI when browser tools are available, verify permissions and workbook import/edit/save/export/delete, deploy the NEW project, and wait for confirmed success. Give me the new URL, confirm which account owns editing/publishing, and summarize remaining migration/configuration tasks honestly.
+
+Make routine technical decisions yourself. Keep my steps simple and ask only for truly blocking account or hosting actions. Do not tell me to close the old account until data and independent editing control are verified.

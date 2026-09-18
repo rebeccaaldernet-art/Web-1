@@ -1,0 +1,1 @@
+ALTER TABLE `website_orders` ADD `source_updated` integer DEFAULT 0 NOT NULL;

@@ -1,0 +1,13 @@
+import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import assert from 'node:assert/strict';
+let cleanup,resize;const opened={current:null},listeners={};
+const viewport={current:{scrollHeight:1600,clientHeight:500,scrollTop:0,addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:name=>delete listeners[name]}};
+const content={current:{}},following={current:true};
+const context={exports:{},require:()=>({useRef:()=>opened,useLayoutEffect:fn=>{cleanup?.();cleanup=fn()}}),ResizeObserver:class{constructor(fn){resize=fn}observe(){}disconnect(){}},requestAnimationFrame:fn=>{fn();return 1},cancelAnimationFrame(){}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('hooks/use-latest-chat.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
+const render=(key='general',loading=false,revision='200:last')=>context.exports.useLatestChat(key,loading,revision,viewport,content,following);
+render();assert.equal(viewport.current.scrollTop,1600);
+viewport.current.scrollTop=100;listeners.scroll();render('general',false,'200:newest');assert.equal(viewport.current.scrollTop,100);
+render(null);viewport.current.scrollTop=0;render();assert.equal(viewport.current.scrollTop,1600);
+viewport.current.scrollHeight=2000;resize();assert.equal(viewport.current.scrollTop,2000);
+render('projects',true);viewport.current.scrollTop=0;render('projects');assert.equal(viewport.current.scrollTop,2000);
+console.log('PASS: open/reopen at newest with unchanged count, retain older-message reading position, follow delayed image layout, and scroll after loading.');cleanup?.();

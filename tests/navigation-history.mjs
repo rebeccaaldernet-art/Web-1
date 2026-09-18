@@ -1,0 +1,11 @@
+import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import assert from 'node:assert/strict';
+const context={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/navigation-history.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
+const events=new EventTarget();let stack=[{router:'preserved'}],cursor=0,restored,available;
+const history={get state(){return stack[cursor]},replaceState(s){stack[cursor]=s},pushState(s){stack=stack.slice(0,cursor+1);stack.push(s);cursor++},back(){if(cursor){cursor--;const e=new Event('popstate');e.state=stack[cursor];events.dispatchEvent(e)}}};
+const initial={view:'messages',channel:'general',thread:''};
+const nav=context.exports.createPortalHistory(history,events,initial,v=>restored=v,v=>available=v,'test-session');
+nav.record({...initial,view:'team'});nav.record({...initial,view:'direct',thread:'thread-1'});assert.equal(stack.length,3);assert.equal(history.state.router,'preserved');assert.equal(available,true);
+nav.back();assert.equal(restored.view,'team');nav.record(restored);assert.equal(stack.length,3);nav.back();assert.equal(restored.channel,'general');assert.equal(available,false);
+cursor++;const forward=new Event('popstate');forward.state=stack[cursor];events.dispatchEvent(forward);assert.equal(restored.view,'team');nav.record(restored);assert.equal(cursor,1);assert.equal(stack.length,3);
+nav.record({...initial,view:'inventory'});assert.equal(stack.length,3);assert.equal(stack[2].raPortal.location.view,'inventory');nav.dispose();
+console.log('PASS: back/forward restores sections and private threads, avoids duplicate entries, preserves router state, and replaces forward history after new navigation.');

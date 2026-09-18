@@ -1,0 +1,10 @@
+import {workspaceAccess} from './access';
+import {database,bucket} from './storage';
+export const lakeJson=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+export async function lakeOwner(){const a=await workspaceAccess();if(a.response)return a;if(a.member.role!=='owner')return {response:lakeJson({error:'Data Lake is restricted to the workspace owner.'},403)};return a}
+export async function audit(actor:string,action:string,dataset=''){await database().prepare('INSERT INTO lake_audit (id,actor,action,dataset,created) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),actor,action,dataset,Date.now()).run()}
+export type LakeData={columns:string[];rows:(string|number|boolean|null)[][]};
+export function validateData(d:any):d is LakeData{return Array.isArray(d?.columns)&&d.columns.length>0&&d.columns.length<=100&&d.columns.every((s:unknown)=>typeof s==='string'&&s.length>0&&s.length<=128)&&new Set(d.columns.map((s:string)=>s.toLowerCase())).size===d.columns.length&&Array.isArray(d.rows)&&d.rows.length<=50000&&d.rows.every((r:any)=>Array.isArray(r)&&r.length===d.columns.length&&r.every((v:any)=>v===null||typeof v==='boolean'||typeof v==='string'&&v.length<=20000||typeof v==='number'&&Number.isFinite(v)))}
+export async function readData(id:string){const meta=await database().prepare('SELECT * FROM lake_datasets WHERE id=?').bind(id).first<any>();if(!meta)return null;const o=await bucket().get(meta.object_key);if(!o)throw Error('Dataset unavailable');return {meta,data:await o.json<LakeData>()}}
+export async function hashToken(token:string){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token)))).map(b=>b.toString(16).padStart(2,'0')).join('')}
+export function csv(data:LakeData){const cell=(v:unknown)=>{let s=v==null?'':String(v);if(typeof v==='string'&&/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"'};return '\ufeff'+[data.columns,...data.rows].map(r=>r.map(cell).join(',')).join('\r\n')}
