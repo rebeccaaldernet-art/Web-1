@@ -113,6 +113,13 @@
       "when": 1789588018422,
       "tag": "0015_safe_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1789754008962,
+      "tag": "0016_foamy_silhouette",
+      "breakpoints": true
     }
   ]
 }
