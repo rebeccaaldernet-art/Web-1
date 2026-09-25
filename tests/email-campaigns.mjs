@@ -32,7 +32,7 @@ assert.equal((await post({action:'create',name:'x'},'https://evil.test')).status
 assert.equal((await post({action:'create',name:'x'},null)).status,403);
 
 // Sender settings require a postal address.
-await ok(await post({action:'settings',from_name:'RA Studio',from_email:'news@studio.test',reply_to:'',postal_address:''}),400);
+await ok(await post({action:'settings',from_name:'RA Studio',from_email:'news@studio.test',reply_to:'',postal_address:'short'}),400);
 await ok(await post({action:'settings',from_name:'RA Studio',from_email:'news@studio.test',reply_to:'hello@studio.test',postal_address:'1 Gallery Road\nPortland, OR 97201'}));
 
 const {id}=await ok(await post({action:'create',name:'Autumn collection'}));

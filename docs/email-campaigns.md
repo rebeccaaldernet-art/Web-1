@@ -1,6 +1,13 @@
-# Email campaigns (bulk email)
+# Email: compose and bulk campaigns
 
-Owner-only portal tool for sending one message to up to 200,000 opted-in recipients per campaign.
+**Email** in the portal sidebar is owner-only and has four folders:
+
+- **Compose** is a Gmail-style editor with From, To, Cc, Bcc, Subject and a formatted body (bold, italic, underline, lists, links). Addresses become chips as you type or paste them, and invalid ones are highlighted. The unsent draft is kept in this browser, and Ctrl/⌘ + Enter sends.
+- **Sent** lists composed email with search, a reader, **Forward** and **Edit and send again**. The status is updated by the webhook: Sent, Delivered, Bounced, Marked as spam or Not sent.
+- **Campaigns** is bulk sending to up to 200,000 opted-in recipients (described below).
+- **Settings** holds the sender, deployment setup status, suppression list and activity.
+
+Composed email goes to at most 50 addresses per message and 1,000 direct recipients per 24 hours, so bulk mail uses campaigns with their consent, unsubscribe and suppression safeguards. Each message has a browser-generated id that doubles as the provider idempotency key. A double click or retry cannot send it twice, and a failed message can be retried with its stored content. Composed email has no unsubscribe footer and needs only a sender name and address. The postal address is required for campaigns only.
 
 ## Why not Gmail
 Gmail and Google Workspace mailboxes are capped at roughly 500–2,000 messages per day, and bulk sending from them gets the account suspended. The portal sends through **Resend**'s HTTP batch API instead (100 messages per call) from the Worker, using the same Cloudflare D1 database as the rest of the portal.
@@ -12,7 +19,7 @@ Gmail and Google Workspace mailboxes are capped at roughly 500–2,000 messages 
    - `RESEND_API_KEY`: a sending-only API key.
    - `EMAIL_LINK_SECRET`: 32 or more random characters. It signs unsubscribe links. If it changes, links in email already sent stop working.
    - `RESEND_WEBHOOK_SECRET`: the `whsec_…` value for a Resend webhook pointed at `https://<site>/api/email/webhook` with the `email.bounced`, `email.complained` and `email.delivered` events.
-4. Apply migration `drizzle/0017_email_campaigns.sql`. It only adds new tables and changes no existing data.
+4. Apply migrations `drizzle/0017_email_campaigns.sql` and `drizzle/0018_email_messages.sql`. They only add new tables and change no existing data.
 5. `/api/email/unsubscribe` and `/api/email/webhook` must be publicly reachable. They are protected by signed tokens and Svix signatures, not by portal sign-in.
 
 The page shows which secrets are missing. Without them, test sends and sending are refused. Nothing is marked as sent unless the provider accepted it.
@@ -35,4 +42,4 @@ The page shows which secrets are missing. Without them, test sends and sending a
 - Unattended background sending. Sites hosting here only declares D1 and R2 bindings. To send without the page open, add a Cron Trigger or a Queue consumer that calls `dispatch(campaignId)` from `lib/email-campaigns.ts`.
 - Open and click tracking, scheduling, and A/B tests.
 
-Test: `node tests/email-campaigns.mjs` runs a full 100,000-recipient send against a mocked provider.
+Tests: `node tests/email-campaigns.mjs` runs a full 100,000-recipient send against a mocked provider, and `node tests/email-messages.mjs` covers Compose and Sent. Migration `0018_email_messages.sql` only adds a new table.

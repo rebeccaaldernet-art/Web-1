@@ -12,16 +12,15 @@ type Detail={campaign:Campaign;counts:Record<string,number>;failures:{email:stri
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- API responses are typed at each call site
 async function response(r:Response):Promise<any>{const d=await r.json().catch(()=>({}));if(!r.ok)throw Error((d as {error?:string}).error||'Request failed.');return d}
 const post=(d:unknown)=>fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(response);
-const emptySettings:Settings={from_name:'',from_email:'',reply_to:'',postal_address:''};
 const n=(v?:number)=>(v||0).toLocaleString();
 const label='block text-sm font-medium mb-1';
 export default function EmailCampaigns(){
  const [overview,setOverview]=useState<Overview|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState('');
- const [settings,setSettings]=useState<Settings>(emptySettings),[newName,setNewName]=useState('');
+ const [newName,setNewName]=useState('');
  const [selected,setSelected]=useState(''),[detail,setDetail]=useState<Detail|null>(null),[draft,setDraft]=useState({name:'',subject:'',html:'',text:''});
- const [consent,setConsent]=useState(false),[upload,setUpload]=useState(''),[confirm,setConfirm]=useState(''),[suppress,setSuppress]=useState(''),[preview,setPreview]=useState(false);
+ const [consent,setConsent]=useState(false),[upload,setUpload]=useState(''),[confirm,setConfirm]=useState(''),[preview,setPreview]=useState(false);
  const [autoSend,setAutoSend]=useState(true);const sending=useRef(false);
- const load=useCallback(async()=>{try{const d:Overview=await fetch('/api/email',{cache:'no-store'}).then(response);setError('');setOverview(d);setSettings(d.settings||emptySettings)}catch(e){setError(e instanceof Error?e.message:'Could not load campaigns.')}},[]);
+ const load=useCallback(async()=>{try{const d:Overview=await fetch('/api/email',{cache:'no-store'}).then(response);setError('');setOverview(d)}catch(e){setError(e instanceof Error?e.message:'Could not load campaigns.')}},[]);
  const loadDetail=useCallback(async(id:string,resetDraft=true)=>{try{const d:Detail=await fetch('/api/email?campaign='+encodeURIComponent(id),{cache:'no-store'}).then(response);setDetail(d);if(resetDraft)setDraft({name:d.campaign.name,subject:d.campaign.subject,html:d.campaign.html,text:d.campaign.text})}catch(e){toast.error(e instanceof Error?e.message:'Could not load campaign.')}},[]);
  useEffect(()=>{const t=setTimeout(()=>void load());return()=>clearTimeout(t)},[load]);
  function choose(id:string){setSelected(id);setConsent(false);setConfirm('');setPreview(false);void loadDetail(id)}
@@ -44,22 +43,13 @@ export default function EmailCampaigns(){
     toast.success(`${n(added)} recipients added. ${n(duplicates)} duplicates and ${n(invalid)} invalid addresses skipped.`)}
    catch(e){toast.error((e instanceof Error?e.message:'Upload stopped.')+` ${n(added)} were added before it stopped.`)}
    finally{setUpload('');void loadDetail(c.id,false)}},error:()=>{setUpload('');toast.error('The file could not be read as CSV.')}})}
- if(error)return <section className="workspace-tool"><h1>Email campaigns</h1><div className="error-banner" role="alert">{error}<button onClick={()=>void load()}>Try again</button></div></section>;
- if(!overview)return <section className="workspace-tool"><h1>Email campaigns</h1><p>Loading…</p></section>;
- const ready=overview.readiness;
- return <section className="workspace-tool">
-  <div className="tool-title"><h1>Email campaigns</h1><button className="outline-button" onClick={()=>{void load();if(selected)void loadDetail(selected,!dirty)}}>Refresh</button></div>
+ if(error)return <section><h1>Campaigns</h1><div className="error-banner" role="alert">{error}<button onClick={()=>void load()}>Try again</button></div></section>;
+ if(!overview)return <section><h1>Campaigns</h1><p>Loading…</p></section>;
+ const ready=overview.readiness,senderReady=!!overview.settings?.from_email&&(overview.settings?.postal_address||'').trim().length>=10;
+ return <section>
+  <div className="tool-title"><h1>Campaigns</h1><button className="outline-button" onClick={()=>{void load();if(selected)void loadDetail(selected,!dirty)}}>Refresh</button></div>
   <p className="tool-intro">Send bulk email to people who opted in. Messages go out in batches of 100 through Resend, include a one-click unsubscribe link and your postal address, and skip anyone who unsubscribed, bounced or complained.</p>
-  {(!ready.provider||!ready.links||!ready.webhook)&&<div className="tool-card"><h2>Deployment setup</h2><ul className="list-disc pl-5 text-sm space-y-1">
-   <li>{ready.provider?'✓':'✗'} <code>RESEND_API_KEY</code> Worker secret, from a Resend account with a verified sending domain (SPF, DKIM and DMARC).</li>
-   <li>{ready.links?'✓':'✗'} <code>EMAIL_LINK_SECRET</code> Worker secret, at least 32 random characters, used to sign unsubscribe links.</li>
-   <li>{ready.webhook?'✓':'✗'} <code>RESEND_WEBHOOK_SECRET</code> (whsec_…) for the webhook at <code>/api/email/webhook</code>, so bounces and complaints are suppressed automatically. Strongly recommended.</li></ul></div>}
-  <div className="tool-card"><h2>Sender</h2><div className="grid gap-3 sm:grid-cols-2 mt-3">
-   <label><span className={label}>From name</span><Input value={settings.from_name} onChange={e=>setSettings({...settings,from_name:e.target.value})}/></label>
-   <label><span className={label}>From address (verified domain)</span><Input type="email" value={settings.from_email} onChange={e=>setSettings({...settings,from_email:e.target.value})}/></label>
-   <label><span className={label}>Reply-to (optional)</span><Input type="email" value={settings.reply_to} onChange={e=>setSettings({...settings,reply_to:e.target.value})}/></label>
-   <label><span className={label}>Postal address (required by law)</span><Textarea rows={2} value={settings.postal_address} onChange={e=>setSettings({...settings,postal_address:e.target.value})}/></label></div>
-   <div className="scan-actions mt-3"><button className="solid-button" disabled={!!busy} onClick={()=>run('settings',async()=>{await post({action:'settings',...settings});toast.success('Sender saved');await load()})}>Save sender</button></div></div>
+  {(!senderReady||!ready.provider||!ready.links)&&<div className="error-banner" role="status">Campaigns need a sender with a postal address and the email provider secrets. Finish setup in Email settings.</div>}
   <div className="tool-card"><h2>Campaigns</h2>
    <form className="flex gap-2 mt-3 flex-wrap" onSubmit={e=>{e.preventDefault();void run('create',async()=>{const d=await post({action:'create',name:newName});setNewName('');await load();choose(d.id)})}}><Input className="max-w-sm" placeholder="Campaign name" value={newName} onChange={e=>setNewName(e.target.value)}/><button className="solid-button" disabled={!newName.trim()||!!busy}>New campaign</button></form>
    {overview.campaigns.length?<div className="orders-table mt-3"><table><thead><tr><th>Campaign</th><th>Subject</th><th>Status</th><th>Created</th></tr></thead><tbody>{overview.campaigns.map(x=><tr key={x.id} className={x.id===selected?'font-semibold':''}><td><button className="underline" onClick={()=>choose(x.id)}>{x.name}</button></td><td>{x.subject||'—'}</td><td>{x.state}</td><td>{new Date(x.created).toLocaleDateString()}</td></tr>)}</tbody></table></div>:<p className="mt-3">No campaigns yet.</p>}</div>
@@ -76,7 +66,7 @@ export default function EmailCampaigns(){
    <p className="text-sm">{n(total)} total · {n(counts.queued)} queued · {n((counts.sent||0)+(counts.delivered||0))} sent · {n(counts.delivered)} delivered · {n(counts.suppressed)} suppressed · {n((counts.bounced||0)+(counts.complained||0))} bounced/complained · {n(counts.failed)} failed{counts.cancelled?` · ${n(counts.cancelled)} cancelled`:''}</p>
    {c.state!=='draft'&&total>0&&<div className="h-2 bg-gray-200 rounded mt-2" role="progressbar" aria-valuenow={Math.round(done/total*100)} aria-valuemin={0} aria-valuemax={100}><div className="h-2 bg-green-700 rounded" style={{width:`${done/total*100}%`}}/></div>}
    {c.state==='draft'&&<div className="mt-3 grid gap-2">
-    <label className="flex gap-2 items-start text-sm"><input type="checkbox" className="mt-1" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I confirm every address in this file opted in to receive email from {settings.from_name||'us'}, and the list was not purchased or scraped.</span></label>
+    <label className="flex gap-2 items-start text-sm"><input type="checkbox" className="mt-1" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I confirm every address in this file opted in to receive email from {overview.settings?.from_name||'us'}, and the list was not purchased or scraped.</span></label>
     <div className="scan-actions"><label className={'outline-button'+(consent&&!upload?'':' opacity-50 pointer-events-none')}>Upload CSV (email, name)<input type="file" accept=".csv,text/csv" className="hidden" disabled={!consent||!!upload} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)importCsv(f)}}/></label>
      {total>0&&<button className="outline-button" disabled={!!busy||!!upload} onClick={()=>{if(window.confirm(`Remove all ${n(total)} recipients from this draft?`))void run('clear',async()=>{await post({action:'clearRecipients',campaign:c.id});await loadDetail(c.id,false)})}}>Clear recipients</button>}{upload&&<span className="text-sm">{upload}</span>}</div></div>}
    {c.state==='draft'&&<><h3 className="mt-5 font-semibold">Test and send</h3>
@@ -92,9 +82,5 @@ export default function EmailCampaigns(){
    {['draft','sending','paused'].includes(c.state)&&<button className="outline-button mt-4" disabled={!!busy} onClick={()=>{if(window.confirm('Cancel this campaign? Unsent recipients will not be emailed.'))void run('cancel',async()=>{await post({action:'cancel',campaign:c.id});await loadDetail(c.id,false);await load()})}}>Cancel campaign</button>}
    {detail!.failures.length>0&&<><h3 className="mt-5 font-semibold">Recent failures</h3><ul className="text-sm list-disc pl-5">{detail!.failures.map(f=><li key={f.email}>{f.email}: {f.error}</li>)}</ul></>}
   </div>}
-  <div className="tool-card"><h2>Suppression list</h2><p className="text-sm">{n(overview.suppressed)} addresses will never be emailed (unsubscribes, hard bounces, complaints and manual additions).</p>
-   <Textarea className="mt-2" rows={3} placeholder="One email address per line" value={suppress} onChange={e=>setSuppress(e.target.value)}/>
-   <div className="scan-actions mt-2"><button className="outline-button" disabled={!suppress.trim()||!!busy} onClick={()=>run('suppress',async()=>{const d=await post({action:'suppress',emails:suppress.split(/[\s,;]+/).filter(Boolean)});toast.success(`${n(d.added)} addresses suppressed`);setSuppress('');await load()})}>Add to suppression list</button></div></div>
-  {overview.audit.length>0&&<div className="tool-card"><h2>Activity</h2><ul className="text-sm mt-2 space-y-1">{overview.audit.slice(0,15).map((x,i)=><li key={i}>{new Date(x.created).toLocaleString()} · {x.action}{x.detail?` · ${x.detail}`:''}</li>)}</ul></div>}
  </section>;
 }

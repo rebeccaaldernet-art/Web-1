@@ -14,7 +14,7 @@ export async function POST(req:Request){
   if(type==='email.bounced'&&data.bounce?.type!=='Transient'||type==='email.complained'){
    const reason=type==='email.complained'?'complaint':'bounce';
    for(const e of emails)statements.push(db.prepare('INSERT OR IGNORE INTO email_suppressions (email,reason,created) VALUES (?,?,?)').bind(e,reason,now),db.prepare("UPDATE email_recipients SET status='suppressed',updated=? WHERE email=? AND status='queued'").bind(now,e));
-   if(providerId)statements.push(db.prepare('UPDATE email_recipients SET status=?,updated=? WHERE provider_id=?').bind(reason==='bounce'?'bounced':'complained',now,providerId));
-  }else if(type==='email.delivered'&&providerId)statements.push(db.prepare("UPDATE email_recipients SET status='delivered',updated=? WHERE provider_id=? AND status='sent'").bind(now,providerId));
+   if(providerId)statements.push(db.prepare('UPDATE email_recipients SET status=?,updated=? WHERE provider_id=?').bind(reason==='bounce'?'bounced':'complained',now,providerId),db.prepare('UPDATE email_messages SET status=?,updated=? WHERE provider_id=?').bind(reason==='bounce'?'bounced':'complained',now,providerId));
+  }else if(type==='email.delivered'&&providerId)statements.push(db.prepare("UPDATE email_recipients SET status='delivered',updated=? WHERE provider_id=? AND status='sent'").bind(now,providerId),db.prepare("UPDATE email_messages SET status='delivered',updated=? WHERE provider_id=? AND status='sent'").bind(now,providerId));
   if(statements.length)await db.batch(statements);
   return json({ok:true})}catch(e){console.error(e);return json({error:'Temporarily unavailable'},503)}}

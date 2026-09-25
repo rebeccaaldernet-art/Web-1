@@ -21,7 +21,8 @@ try{const v=await req.json();if(!v||typeof v!=='object'||Array.isArray(v))throw 
   const s={from_name:cleanName(d.from_name),from_email:normalizeEmail(d.from_email),reply_to:normalizeEmail(d.reply_to),postal_address:typeof d.postal_address==='string'?d.postal_address.trim().slice(0,500):''};
   if(!s.from_name||!validEmail(s.from_email))return emailJson({error:'Enter a sender name and a sender address on your verified sending domain.'},400);
   if(s.reply_to&&!validEmail(s.reply_to))return emailJson({error:'Enter a valid reply-to address or leave it empty.'},400);
-  if(s.postal_address.length<10)return emailJson({error:'A physical postal address is required in every marketing email (CAN-SPAM).'},400);
+  // The postal address is optional for composed mail; settingsComplete() still requires it before any campaign sends.
+  if(s.postal_address&&s.postal_address.length<10)return emailJson({error:'Enter a complete postal address, or leave it empty until you send campaigns.'},400);
   await db.prepare("INSERT INTO email_settings (id,from_name,from_email,reply_to,postal_address,updated) VALUES ('workspace',?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET from_name=excluded.from_name,from_email=excluded.from_email,reply_to=excluded.reply_to,postal_address=excluded.postal_address,updated=excluded.updated").bind(s.from_name,s.from_email,s.reply_to,s.postal_address,now).run();
   await audit(actor,'settings');return emailJson({ok:true});
  }

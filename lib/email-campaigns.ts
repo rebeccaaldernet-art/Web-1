@@ -4,7 +4,7 @@ import {database} from './storage';
 // Bulk email campaigns. Delivery goes through Resend's HTTP batch API (100 messages per call) using a Worker secret;
 // Gmail/Workspace mailboxes are capped at a few thousand messages per day and are not a bulk-sending channel.
 // Sending is owner-only, needs a test send of the exact revision, and an explicit recipient-count confirmation.
-export const EMAIL_LIMITS={recipientsPerCampaign:200000,recipientsPerUpload:1000,batchSize:100,batchesPerDispatch:5,subject:200,html:200000,text:100000,name:120,leaseMs:120000,maxAttempts:5};
+export const EMAIL_LIMITS={recipientsPerCampaign:200000,directRecipients:50,directRecipientsPerDay:1000,recipientsPerUpload:1000,batchSize:100,batchesPerDispatch:5,subject:200,html:200000,text:100000,name:120,leaseMs:120000,maxAttempts:5};
 export const emailJson=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 export async function emailOwner(){const a=await workspaceAccess();if(a.response)return a;if(a.member.role!=='owner')return {response:emailJson({error:'Email campaigns are restricted to the workspace owner.'},403)};return a}
 type Secrets={RESEND_API_KEY?:string;EMAIL_LINK_SECRET?:string;RESEND_WEBHOOK_SECRET?:string};
@@ -39,7 +39,7 @@ export function renderMessage(c:Pick<Campaign,'subject'|'html'|'text'>,settings:
  const text=fill(c.text||htmlToText(c.html),false)+`\n\n--\n${settings.from_name} · ${address}\nUnsubscribe: ${link}`;
  return {subject:fill(c.subject,false).replace(/[\r\n]+/g,' '),html,text};
 }
-const fromHeader=(s:Settings)=>`${s.from_name.replace(/["\r\n]/g,'')} <${s.from_email}>`;
+export const fromHeader=(s:Pick<Settings,"from_name"|"from_email">)=>`${s.from_name.replace(/["\r\n]/g,'')} <${s.from_email}>`;
 
 export type SendResult={ok:true;ids:string[]}|{ok:false;retry:boolean;status:number;error:string};
 // One Resend batch call. The idempotency key makes a retried lease safe: Resend replays the first result for 24h.
