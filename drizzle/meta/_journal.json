@@ -120,6 +120,13 @@
       "when": 1789754008962,
       "tag": "0016_foamy_silhouette",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790346426629,
+      "tag": "0017_email_campaigns",
+      "breakpoints": true
     }
   ]
 }

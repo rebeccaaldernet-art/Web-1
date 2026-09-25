@@ -1,5 +1,5 @@
 export type PortalLocation={view:string;channel:string;thread:string};
-const views=new Set(['home','team','messages','files','direct','inventory','datalake','orders','wix','analytics','settings']);
+const views=new Set(['home','team','messages','files','direct','inventory','datalake','email','orders','wix','analytics','settings']);
 function valid(v:unknown):v is PortalLocation{const x=v as PortalLocation;return !!x&&views.has(x.view)&&typeof x.channel==='string'&&typeof x.thread==='string'}
 const same=(a:PortalLocation,b:PortalLocation)=>a.view===b.view&&a.channel===b.channel&&a.thread===b.thread;
 export function createPortalHistory(history:Pick<History,'state'|'replaceState'|'pushState'|'back'>,events:Pick<Window,'addEventListener'|'removeEventListener'>,initial:PortalLocation,onRestore:(v:PortalLocation)=>void,onBackAvailable:(v:boolean)=>void,session:string){
