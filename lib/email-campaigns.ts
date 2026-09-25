@@ -1,15 +1,16 @@
 import {env} from 'cloudflare:workers';
 import {workspaceAccess} from './access';
 import {database} from './storage';
-// Bulk email campaigns. Delivery goes through Resend's HTTP batch API (100 messages per call) using a Worker secret;
-// Gmail/Workspace mailboxes are capped at a few thousand messages per day and are not a bulk-sending channel.
+// Bulk email campaigns and composed mail. Delivery goes through the self-hosted mailer in mailer/ (direct-to-MX SMTP
+// with DKIM, 100 messages per request); no third-party email service is used.
 // Sending is owner-only, needs a test send of the exact revision, and an explicit recipient-count confirmation.
 export const EMAIL_LIMITS={recipientsPerCampaign:200000,directRecipients:50,directRecipientsPerDay:1000,recipientsPerUpload:1000,batchSize:100,batchesPerDispatch:5,subject:200,html:200000,text:100000,name:120,leaseMs:120000,maxAttempts:5};
 export const emailJson=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 export async function emailOwner(){const a=await workspaceAccess();if(a.response)return a;if(a.member.role!=='owner')return {response:emailJson({error:'Email campaigns are restricted to the workspace owner.'},403)};return a}
-type Secrets={RESEND_API_KEY?:string;EMAIL_LINK_SECRET?:string;RESEND_WEBHOOK_SECRET?:string};
+type Secrets={MAILER_URL?:string;MAILER_SECRET?:string;EMAIL_LINK_SECRET?:string};
 export const secrets=()=>env as unknown as Secrets;
-export function readiness(){const s=secrets();return {provider:typeof s.RESEND_API_KEY==='string'&&s.RESEND_API_KEY.length>=10,links:typeof s.EMAIL_LINK_SECRET==='string'&&s.EMAIL_LINK_SECRET.length>=32,webhook:typeof s.RESEND_WEBHOOK_SECRET==='string'&&s.RESEND_WEBHOOK_SECRET.startsWith('whsec_')}}
+const validMailerUrl=(v?:string)=>{try{const u=new URL(v||'');return u.protocol==='https:'||u.protocol==='http:'&&['localhost','127.0.0.1'].includes(u.hostname)}catch{return false}};
+export function readiness(){const s=secrets();return {provider:validMailerUrl(s.MAILER_URL)&&typeof s.MAILER_SECRET==='string'&&s.MAILER_SECRET.length>=32,links:typeof s.EMAIL_LINK_SECRET==='string'&&s.EMAIL_LINK_SECRET.length>=32}}
 export type Settings={from_name:string;from_email:string;reply_to:string;postal_address:string};
 export type Campaign={id:string;name:string;subject:string;html:string;text:string;state:'draft'|'sending'|'paused'|'complete'|'cancelled';revision:number;tested_revision:number;link_origin:string;created:number;updated:number;owner:string};
 export type Recipient={id:number;campaign:string;email:string;name:string;status:string;lease:string|null;attempts:number};
@@ -42,17 +43,23 @@ export function renderMessage(c:Pick<Campaign,'subject'|'html'|'text'>,settings:
 export const fromHeader=(s:Pick<Settings,"from_name"|"from_email">)=>`${s.from_name.replace(/["\r\n]/g,'')} <${s.from_email}>`;
 
 export type SendResult={ok:true;ids:string[]}|{ok:false;retry:boolean;status:number;error:string};
-// One Resend batch call. The idempotency key makes a retried lease safe: Resend replays the first result for 24h.
+// One call to the self-hosted mailer (mailer/ in this repository). Requests are HMAC-signed with MAILER_SECRET;
+// the idempotency key makes a retried lease safe because the mailer returns the first result for the same key.
+export async function mailerRequest(path:string,body?:string,extra:Record<string,string>={}){
+ const {MAILER_URL:url,MAILER_SECRET:secret}=secrets();if(!url||!secret)throw Error('MAILER_URL and MAILER_SECRET are not configured.');
+ const ts=String(Math.floor(Date.now()/1000));
+ return fetch(url.replace(/\/+$/,'')+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Mailer-Timestamp':ts,'X-Mailer-Signature':await hmac(secret,`${ts}.${body??''}`),...extra},body,signal:AbortSignal.timeout(30000)});
+}
 export async function sendBatch(messages:Record<string,unknown>[],idempotencyKey:string):Promise<SendResult>{
- const key=secrets().RESEND_API_KEY;if(!key)return {ok:false,retry:false,status:0,error:'RESEND_API_KEY is not configured.'};
- let r:Response;try{r=await fetch('https://api.resend.com/emails/batch',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(messages)})}catch{return {ok:false,retry:true,status:0,error:'Email provider could not be reached.'}}
- let body:{data?:{id?:string}[];message?:string;error?:string}|null=null;try{body=await r.json()}catch{}
+ if(!readiness().provider)return {ok:false,retry:false,status:0,error:'Your mail server is not connected (MAILER_URL and MAILER_SECRET).'};
+ let r:Response;try{r=await mailerRequest('/v1/messages',JSON.stringify(messages),{'Idempotency-Key':idempotencyKey})}catch{return {ok:false,retry:true,status:0,error:'Your mail server could not be reached.'}}
+ let body:{data?:{id?:string}[];message?:string}|null=null;try{body=await r.json()}catch{}
  if(r.ok&&Array.isArray(body?.data)&&body.data.length===messages.length)return {ok:true,ids:body.data.map(d=>String(d?.id||''))};
- const error=String(body?.message||body?.error||`Email provider returned ${r.status}.`).slice(0,300);
- return {ok:false,retry:r.status===429||r.status>=500||r.ok,status:r.status,error};
+ const error=String(body?.message||`Mail server returned ${r.status}.`).slice(0,300);
+ return {ok:false,retry:r.status===429||r.status>=500||r.status===401||r.ok,status:r.status,error};
 }
 async function buildMessages(c:Campaign,settings:Settings,rows:Recipient[]){
- return Promise.all(rows.map(async r=>{const link=await unsubscribeUrl(c.link_origin,r.id);const m=renderMessage(c,settings,r,link);return {from:fromHeader(settings),to:[r.email],subject:m.subject,html:m.html,text:m.text,...(settings.reply_to?{reply_to:settings.reply_to}:{}),headers:{'List-Unsubscribe':`<${link}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click'},tags:[{name:'campaign',value:c.id.replace(/[^a-zA-Z0-9_-]/g,'')}]}}));
+ return Promise.all(rows.map(async r=>{const link=await unsubscribeUrl(c.link_origin,r.id);const m=renderMessage(c,settings,r,link);return {from:fromHeader(settings),to:[r.email],subject:m.subject,html:m.html,text:m.text,...(settings.reply_to?{reply_to:settings.reply_to}:{}),headers:{'List-Unsubscribe':`<${link}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click'}}}));
 }
 async function deliverLease(c:Campaign,settings:Settings,lease:string){
  const db=database();
@@ -75,7 +82,7 @@ export async function dispatch(campaignId:string){
  if(!c)return {error:'Campaign not found.',status:404};
  if(c.state!=='sending')return {state:c.state,sent:0,counts:await counts(c.id)};
  const settings=await loadSettings();if(!settingsComplete(settings))return {error:'Sender settings are incomplete.',status:409};
- const r=readiness();if(!r.provider||!r.links)return {error:'Email provider secrets are not configured on this deployment.',status:503};
+ const r=readiness();if(!r.provider||!r.links)return {error:'Your mail server is not connected on this deployment (MAILER_URL, MAILER_SECRET, EMAIL_LINK_SECRET).',status:503};
  let sent=0,error:string|undefined;
  for(let i=0;i<EMAIL_LIMITS.batchesPerDispatch;i++){
   const now=Date.now();
@@ -98,13 +105,10 @@ export async function testSend(c:Campaign,settings:Settings,to:string,origin:str
  const link=await unsubscribeUrl(origin,0);const m=renderMessage(c,settings,{email:to,name:'Test Recipient'},link);
  return sendBatch([{from:fromHeader(settings),to:[to],subject:'[Test] '+m.subject,html:m.html,text:m.text,...(settings.reply_to?{reply_to:settings.reply_to}:{})}],`${c.id}:test:${c.revision}:${crypto.randomUUID()}`);
 }
-// Resend signs webhooks with Svix: base64 HMAC-SHA256 of "id.timestamp.body" using the whsec_ secret.
+// The mailer signs delivery reports the same way: base64url HMAC-SHA256 of "timestamp.body" with MAILER_SECRET.
 export async function verifyWebhook(headers:Headers,body:string,now=Date.now()){
- const secret=secrets().RESEND_WEBHOOK_SECRET;if(!secret?.startsWith('whsec_'))return false;
- const id=headers.get('svix-id'),ts=headers.get('svix-timestamp'),sig=headers.get('svix-signature');if(!id||!ts||!sig)return false;
- if(!/^\d+$/.test(ts)||Math.abs(now/1000-Number(ts))>300)return false;
- let raw:Uint8Array<ArrayBuffer>;try{raw=Uint8Array.from(atob(secret.slice(6)),c=>c.charCodeAt(0))}catch{return false}
- const key=await crypto.subtle.importKey('raw',raw,{name:'HMAC',hash:'SHA-256'},false,['sign']);
- const expected=btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(`${id}.${ts}.${body}`)))));
- return sig.split(' ').some(part=>{const [version,value]=part.split(',');return version==='v1'&&typeof value==='string'&&same(value,expected)});
+ const secret=secrets().MAILER_SECRET;if(!secret||secret.length<32)return false;
+ const ts=headers.get('x-mailer-timestamp'),sig=headers.get('x-mailer-signature');if(!ts||!sig||!/^\d{1,12}$/.test(ts))return false;
+ if(Math.abs(now/1000-Number(ts))>300)return false;
+ return same(await hmac(secret,`${ts}.${body}`),sig);
 }

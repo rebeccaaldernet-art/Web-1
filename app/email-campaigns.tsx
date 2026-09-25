@@ -7,7 +7,7 @@ import {Textarea} from '@/components/ui/textarea';
 type Settings={from_name:string;from_email:string;reply_to:string;postal_address:string};
 type Summary={id:string;name:string;subject:string;state:string;revision:number;tested_revision:number;created:number;updated:number};
 type Campaign=Summary&{html:string;text:string};
-type Overview={settings:Settings|null;campaigns:Summary[];suppressed:number;readiness:{provider:boolean;links:boolean;webhook:boolean};limits:{recipientsPerCampaign:number;recipientsPerUpload:number};ownerEmail:string|null;audit:{action:string;campaign:string;detail:string;created:number}[]};
+type Overview={settings:Settings|null;campaigns:Summary[];suppressed:number;readiness:{provider:boolean;links:boolean};limits:{recipientsPerCampaign:number;recipientsPerUpload:number};ownerEmail:string|null;audit:{action:string;campaign:string;detail:string;created:number}[]};
 type Detail={campaign:Campaign;counts:Record<string,number>;failures:{email:string;error:string}[]};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- API responses are typed at each call site
 async function response(r:Response):Promise<any>{const d=await r.json().catch(()=>({}));if(!r.ok)throw Error((d as {error?:string}).error||'Request failed.');return d}
@@ -48,7 +48,7 @@ export default function EmailCampaigns(){
  const ready=overview.readiness,senderReady=!!overview.settings?.from_email&&(overview.settings?.postal_address||'').trim().length>=10;
  return <section>
   <div className="tool-title"><h1>Campaigns</h1><button className="outline-button" onClick={()=>{void load();if(selected)void loadDetail(selected,!dirty)}}>Refresh</button></div>
-  <p className="tool-intro">Send bulk email to people who opted in. Messages go out in batches of 100 through Resend, include a one-click unsubscribe link and your postal address, and skip anyone who unsubscribed, bounced or complained.</p>
+  <p className="tool-intro">Send bulk email to people who opted in. Messages go out through your own mail server, include a one-click unsubscribe link and your postal address, and skip anyone who unsubscribed, bounced or complained.</p>
   {(!senderReady||!ready.provider||!ready.links)&&<div className="error-banner" role="status">Campaigns need a sender with a postal address and the email provider secrets. Finish setup in Email settings.</div>}
   <div className="tool-card"><h2>Campaigns</h2>
    <form className="flex gap-2 mt-3 flex-wrap" onSubmit={e=>{e.preventDefault();void run('create',async()=>{const d=await post({action:'create',name:newName});setNewName('');await load();choose(d.id)})}}><Input className="max-w-sm" placeholder="Campaign name" value={newName} onChange={e=>setNewName(e.target.value)}/><button className="solid-button" disabled={!newName.trim()||!!busy}>New campaign</button></form>
@@ -63,7 +63,7 @@ export default function EmailCampaigns(){
     {preview&&<iframe title="Email preview" sandbox="" className="w-full h-96 border rounded" srcDoc={draft.html}/>}
    </div>:<p className="mt-2 text-sm">Subject: {c.subject}</p>}
    <h3 className="mt-5 font-semibold">Recipients</h3>
-   <p className="text-sm">{n(total)} total · {n(counts.queued)} queued · {n((counts.sent||0)+(counts.delivered||0))} sent · {n(counts.delivered)} delivered · {n(counts.suppressed)} suppressed · {n((counts.bounced||0)+(counts.complained||0))} bounced/complained · {n(counts.failed)} failed{counts.cancelled?` · ${n(counts.cancelled)} cancelled`:''}</p>
+   <p className="text-sm">{n(total)} total · {n(counts.queued)} queued · {n((counts.sent||0)+(counts.delivered||0))} handed to your mail server · {n(counts.delivered)} accepted by recipients · {n(counts.suppressed)} suppressed · {n((counts.bounced||0)+(counts.complained||0))} bounced/complained · {n(counts.failed)} failed{counts.cancelled?` · ${n(counts.cancelled)} cancelled`:''}</p>
    {c.state!=='draft'&&total>0&&<div className="h-2 bg-gray-200 rounded mt-2" role="progressbar" aria-valuenow={Math.round(done/total*100)} aria-valuemin={0} aria-valuemax={100}><div className="h-2 bg-green-700 rounded" style={{width:`${done/total*100}%`}}/></div>}
    {c.state==='draft'&&<div className="mt-3 grid gap-2">
     <label className="flex gap-2 items-start text-sm"><input type="checkbox" className="mt-1" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>I confirm every address in this file opted in to receive email from {overview.settings?.from_name||'us'}, and the list was not purchased or scraped.</span></label>

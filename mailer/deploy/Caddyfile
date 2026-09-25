@@ -1,0 +1,5 @@
+# HTTPS in front of the mailer API. Caddy obtains the certificate automatically.
+# The portal's MAILER_URL is then https://mail.example.com
+mail.example.com {
+	reverse_proxy 127.0.0.1:8025
+}

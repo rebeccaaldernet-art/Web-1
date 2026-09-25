@@ -1,11 +1,14 @@
-// Synthetic check of the Compose screen API (To/Cc/Bcc one-off email) against a mocked Resend API. No real email is sent.
+// Synthetic check of the Compose screen API (To/Cc/Bcc one-off email) against a mocked self-hosted mailer API. No real email is sent.
 import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import ts from 'typescript';import crypto from 'node:crypto';
 const sql=new DatabaseSync(':memory:');
 for(const f of fs.readdirSync('drizzle').filter(f=>/^\d{4}_.*\.sql$/.test(f)).sort())sql.exec(fs.readFileSync('drizzle/'+f,'utf8'));
 sql.exec("INSERT INTO members (id,user_id,email,name,role,status,created) VALUES ('owner','owner-user','owner@studio.test','Owner','owner','active',1),('member','member-user','m@studio.test','Member','member','active',1)");
 const db={prepare(q){let args=[];return {bind(...v){args=v;return this},async first(){return sql.prepare(q).get(...args)??null},async all(){return {results:sql.prepare(q).all(...args)}},async run(){return {meta:sql.prepare(q).run(...args)}}}},async batch(st){sql.exec('BEGIN');try{const r=[];for(const s of st)r.push(await s.run());sql.exec('COMMIT');return r}catch(e){sql.exec('ROLLBACK');throw e}}};
-const webhookKey=crypto.randomBytes(24);
-const env={RESEND_API_KEY:'re_test_key_123456',EMAIL_LINK_SECRET:'x'.repeat(40),RESEND_WEBHOOK_SECRET:'whsec_'+webhookKey.toString('base64')};
+const webhookKey=crypto.randomBytes(24).toString('hex');
+const env={MAILER_URL:'https://mail.studio.test/',MAILER_SECRET:webhookKey,EMAIL_LINK_SECRET:'x'.repeat(40)};
+// The self-hosted mailer's signature scheme: base64url HMAC-SHA256 of "timestamp.body" with MAILER_SECRET.
+const mailerSign=(body,ts=Math.floor(Date.now()/1000))=>({'X-Mailer-Timestamp':String(ts),'X-Mailer-Signature':crypto.createHmac('sha256',webhookKey).update(`${ts}.${body}`).digest('base64url')});
+const checkSigned=init=>{const ts=init.headers['X-Mailer-Timestamp'];assert.equal(init.headers['X-Mailer-Signature'],mailerSign(init.body,ts)['X-Mailer-Signature'],'request to mail server must be signed')};
 let actor='owner';
 const runtime={env,database:()=>db,workspaceAccess:async()=>{const m=sql.prepare('SELECT * FROM members WHERE id=?').get(actor);return m?{member:m,user:{}}:{response:Response.json({},{status:401})}}};
 globalThis.emailTest=runtime;
@@ -14,7 +17,7 @@ const lib=await load('lib/email-campaigns.ts','env,workspaceAccess,database');Ob
 const names='database,'+Object.keys(lib).join(',');
 const settingsApi=await load('app/api/email/route.ts',names),api=await load('app/api/email/messages/route.ts',names),hook=await load('app/api/email/webhook/route.ts',names);
 const calls=[],replays=new Map();let failNext=[],ids=0;
-globalThis.fetch=async(url,init)=>{assert.equal(url,'https://api.resend.com/emails/batch');const key=init.headers['Idempotency-Key'],body=JSON.parse(init.body);
+globalThis.fetch=async(url,init)=>{assert.equal(url,'https://mail.studio.test/v1/messages');checkSigned(init);const key=init.headers['Idempotency-Key'],body=JSON.parse(init.body);
  if(replays.has(key)){calls.push({key,body,replay:true});return Response.json(replays.get(key))}
  calls.push({key,body});const fail=failNext.shift();if(fail)return Response.json({message:fail===422?'Invalid from address':'Busy'},{status:fail});
  const out={data:body.map(()=>({id:'re_'+(++ids)}))};replays.set(key,out);return Response.json(out)};
@@ -69,13 +72,12 @@ const detail=await ok(await api.GET(new Request(origin+'/api/email/messages?id='
 
 // Delivery webhook updates the Sent status.
 const providerId=sql.prepare('SELECT provider_id FROM email_messages WHERE id=?').get(first).provider_id;
-const body=JSON.stringify({type:'email.delivered',data:{email_id:providerId,to:['alice@example.test']}}),ts0=String(Math.floor(Date.now()/1000));
-const sig='v1,'+crypto.createHmac('sha256',webhookKey).update(`msg_9.${ts0}.${body}`).digest('base64');
-assert.equal((await hook.POST(new Request(origin+'/api/email/webhook',{method:'POST',headers:{'svix-id':'msg_9','svix-timestamp':ts0,'svix-signature':sig},body}))).status,200);
+const body=JSON.stringify({events:[{type:'email.delivered',email_id:providerId,to:['alice@example.test']}]});
+assert.equal((await hook.POST(new Request(origin+'/api/email/webhook',{method:'POST',headers:mailerSign(body),body}))).status,200);
 assert.equal(sql.prepare('SELECT status FROM email_messages WHERE id=?').get(first).status,'delivered');
 
 // Daily cap keeps bulk mail in campaigns: 1,000 direct recipients per 24 hours.
 let sent=4;while(sent+50<=1000){await ok(await send({id:id(),to:Array.from({length:50},(_,i)=>`bulk${sent+i}@example.test`),subject:'x',html:'x'}));sent+=50}
 await ok(await send({id:id(),to:Array.from({length:50},(_,i)=>`over${i}@example.test`),subject:'x',html:'x'}),429);
-delete env.RESEND_API_KEY;await ok(await send({id:id(),to:['z@example.test'],subject:'x',html:'x'}),503);
+delete env.MAILER_SECRET;await ok(await send({id:id(),to:['z@example.test'],subject:'x',html:'x'}),503);
 console.log('PASS: sender required; owner-only and origin checks; To/Cc/Bcc validation, dedupe and 50-address cap; From/To/Cc/Bcc/subject/text sent to provider; double-send protection; failed send retried with stored content and same idempotency key; stuck-send recovery; Sent list, search (LIKE-escaped) and detail; delivery webhook status; 1,000-per-day direct cap; missing provider key reported.');

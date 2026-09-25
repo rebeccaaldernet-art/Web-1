@@ -27,7 +27,7 @@ export async function POST(req:Request){
  const text=htmlToText(html);if(!subject&&!text)return emailJson({error:'Write a subject or a message before sending.'},400);
  try{const db=database(),now=Date.now();
   const settings=await loadSettings();if(!settings||!validEmail(settings.from_email)||!settings.from_name)return emailJson({error:'Set your sender name and address in Email settings first.'},409);
-  if(!readiness().provider)return emailJson({error:'Email sending is not set up on this deployment yet (RESEND_API_KEY is missing).'},503);
+  if(!readiness().provider)return emailJson({error:'Your mail server is not connected yet (set MAILER_URL and MAILER_SECRET on this deployment).'},503);
   const existing=await db.prepare('SELECT id,status,error,updated FROM email_messages WHERE id=?').bind(d.id).first<Row>();
   const retryable=existing&&(existing.status==='failed'||existing.status==='sending'&&existing.updated<now-STUCK_MS);
   if(existing&&!retryable)return existing.status==='sent'?emailJson({ok:true,id:existing.id,status:'sent'}):emailJson({error:'This email is already being sent.'},409);

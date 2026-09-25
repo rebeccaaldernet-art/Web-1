@@ -46,3 +46,10 @@ next-env.d.ts
 /work/
 
 *.tsbuildinfo
+
+# self-hosted mailer
+/mailer/node_modules
+/mailer/data
+/mailer/keys
+/mailer/.env
+!/mailer/.env.example

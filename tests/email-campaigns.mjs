@@ -1,11 +1,14 @@
-// Synthetic end-to-end check of bulk email campaigns against a mocked Resend API. No real email is sent.
+// Synthetic end-to-end check of bulk email campaigns against a mocked self-hosted mailer API. No real email is sent.
 import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import ts from 'typescript';import crypto from 'node:crypto';
 const sql=new DatabaseSync(':memory:');
 for(const f of fs.readdirSync('drizzle').filter(f=>/^\d{4}_.*\.sql$/.test(f)).sort())sql.exec(fs.readFileSync('drizzle/'+f,'utf8'));
 sql.exec("INSERT INTO members (id,user_id,email,name,role,status,created) VALUES ('owner','owner-user','owner@studio.test','Owner','owner','active',1),('admin','admin-user','admin@studio.test','Admin','admin','active',1)");
 const db={prepare(q){let args=[];return {bind(...v){args=v;return this},async first(){return sql.prepare(q).get(...args)??null},async all(){return {results:sql.prepare(q).all(...args)}},async run(){return {meta:sql.prepare(q).run(...args)}}}},async batch(st){sql.exec('BEGIN');try{const r=[];for(const s of st)r.push(await s.run());sql.exec('COMMIT');return r}catch(e){sql.exec('ROLLBACK');throw e}}};
-const webhookKey=crypto.randomBytes(24);
-const env={RESEND_API_KEY:'re_test_key_123456',EMAIL_LINK_SECRET:'x'.repeat(40),RESEND_WEBHOOK_SECRET:'whsec_'+webhookKey.toString('base64')};
+const webhookKey=crypto.randomBytes(24).toString('hex');
+const env={MAILER_URL:'https://mail.studio.test/',MAILER_SECRET:webhookKey,EMAIL_LINK_SECRET:'x'.repeat(40)};
+// The self-hosted mailer's signature scheme: base64url HMAC-SHA256 of "timestamp.body" with MAILER_SECRET.
+const mailerSign=(body,ts=Math.floor(Date.now()/1000))=>({'X-Mailer-Timestamp':String(ts),'X-Mailer-Signature':crypto.createHmac('sha256',webhookKey).update(`${ts}.${body}`).digest('base64url')});
+const checkSigned=init=>{const ts=init.headers['X-Mailer-Timestamp'];assert.equal(init.headers['X-Mailer-Signature'],mailerSign(init.body,ts)['X-Mailer-Signature'],'request to mail server must be signed')};
 let actor='owner';
 const runtime={env,database:()=>db,workspaceAccess:async()=>{const m=sql.prepare('SELECT * FROM members WHERE id=?').get(actor);return m?{member:m,user:{}}:{response:Response.json({},{status:401})}}};
 globalThis.emailTest=runtime;
@@ -14,9 +17,9 @@ const lib=await load('lib/email-campaigns.ts','env,workspaceAccess,database');Ob
 const names='database,'+Object.keys(lib).join(',');
 const api=await load('app/api/email/route.ts',names),unsub=await load('app/api/email/unsubscribe/route.ts',names),hook=await load('app/api/email/webhook/route.ts',names);
 
-// Mock Resend: records calls, replays responses per Idempotency-Key, and can be told to fail the next calls.
+// Mock mail server API: records calls, replays responses per Idempotency-Key, and can be told to fail the next calls.
 const calls=[],replays=new Map();let failNext=[],ids=0;
-globalThis.fetch=async(url,init)=>{assert.equal(url,'https://api.resend.com/emails/batch');assert.equal(init.headers.Authorization,'Bearer '+env.RESEND_API_KEY);const key=init.headers['Idempotency-Key'],body=JSON.parse(init.body);
+globalThis.fetch=async(url,init)=>{assert.equal(url,'https://mail.studio.test/v1/messages');checkSigned(init);const key=init.headers['Idempotency-Key'],body=JSON.parse(init.body);
  if(replays.has(key)){calls.push({key,body,replay:true});return Response.json(replays.get(key))}
  calls.push({key,body});const fail=failNext.shift();if(fail)return Response.json({message:'Too many requests'},{status:fail});
  assert.ok(body.length>=1&&body.length<=100);const out={data:body.map(()=>({id:'re_'+(++ids)}))};replays.set(key,out);return Response.json(out)};
@@ -90,11 +93,11 @@ assert.equal((await unsub.POST(new Request(`${origin}/api/email/unsubscribe?r=${
 const late=sql.prepare("SELECT id FROM email_recipients WHERE email='person99990@example.test'").get();
 assert.equal((await unsub.POST(new Request(await lib.unsubscribeUrl(origin,late.id),{method:'POST'}))).status,200);
 
-// Webhook: Svix signature required; hard bounces and complaints are suppressed.
-const sign=(body,idv='msg_1',ts=Math.floor(Date.now()/1000))=>({'svix-id':idv,'svix-timestamp':String(ts),'svix-signature':'v1,'+crypto.createHmac('sha256',webhookKey).update(`${idv}.${ts}.${body}`).digest('base64')});
+// Webhook: the mail server's signature is required; hard bounces are suppressed.
+const sign=(body,idv,ts)=>mailerSign(body,ts);
 const bounced=sql.prepare("SELECT provider_id,email FROM email_recipients WHERE status='sent' AND email NOT IN (SELECT email FROM email_suppressions) LIMIT 1").get();
-const bounce=JSON.stringify({type:'email.bounced',data:{email_id:bounced.provider_id,to:[bounced.email],bounce:{type:'Permanent'}}});
-assert.equal((await hook.POST(new Request(origin+'/api/email/webhook',{method:'POST',headers:{...sign(bounce),'svix-signature':'v1,AAAA'},body:bounce}))).status,401);
+const bounce=JSON.stringify({events:[{type:'email.bounced',email_id:bounced.provider_id,to:[bounced.email],bounce:{type:'Permanent',message:'550 5.1.1 User unknown'}}]});
+assert.equal((await hook.POST(new Request(origin+'/api/email/webhook',{method:'POST',headers:{...sign(bounce),'X-Mailer-Signature':'forged'},body:bounce}))).status,401);
 assert.equal((await hook.POST(new Request(origin+'/api/email/webhook',{method:'POST',headers:sign(bounce,'msg_1',1),body:bounce}))).status,401);
 assert.equal((await hook.POST(new Request(origin+'/api/email/webhook',{method:'POST',headers:sign(bounce),body:bounce}))).status,200);
 assert.equal(sql.prepare('SELECT status FROM email_recipients WHERE provider_id=?').get(bounced.provider_id).status,'bounced');
@@ -116,5 +119,5 @@ const second=(await ok(await post({action:'create',name:'Second'}))).id;
 await ok(await post({action:'recipients',campaign:second,consent:true,recipients:[{email:'q@x.test'}]}));
 await ok(await post({action:'cancel',campaign:second}));assert.equal((await detail(second)).counts.cancelled,1);
 const third=(await ok(await post({action:'create',name:'Third'}))).id;await ok(await post({action:'update',campaign:third,revision:1,name:'Third',subject:'S',html:'<p>b</p>'}));
-delete env.RESEND_API_KEY;await ok(await post({action:'test',campaign:third,revision:2}),503);
-console.log(`PASS: owner-only access and origin checks; settings validation; revision checks; opt-in consent gate; dedupe/validation; ${TOTAL.toLocaleString()} synthetic recipients uploaded and sent in ${loops+7} dispatch calls (${((Date.now()-started)/1000).toFixed(1)}s) with no duplicates; test-before-send and count confirmation; suppression before send; List-Unsubscribe one-click headers, footer and escaping; throttling retry with the same idempotency key and crash replay; signed unsubscribe (GET safe, forged rejected); Svix-verified bounce webhook; pause/resume; completion; cancel; missing secrets reported, not faked.`);
+delete env.MAILER_URL;await ok(await post({action:'test',campaign:third,revision:2}),503);
+console.log(`PASS: owner-only access and origin checks; settings validation; revision checks; opt-in consent gate; dedupe/validation; ${TOTAL.toLocaleString()} synthetic recipients uploaded and sent in ${loops+7} dispatch calls (${((Date.now()-started)/1000).toFixed(1)}s) with no duplicates; test-before-send and count confirmation; suppression before send; List-Unsubscribe one-click headers, footer and escaping; throttling retry with the same idempotency key and crash replay; signed unsubscribe (GET safe, forged rejected); signed mail-server bounce webhook; pause/resume; completion; cancel; missing secrets reported, not faked.`);

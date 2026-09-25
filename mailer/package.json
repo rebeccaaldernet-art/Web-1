@@ -1,0 +1,26 @@
+{
+  "name": "ra-studio-mailer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted outbound mail server for the RA Studio portal: direct-to-MX SMTP delivery with DKIM, queueing, retries, bounce handling and IP warm-up.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/index.js",
+    "dkim-keygen": "node scripts/dkim-keygen.js",
+    "test": "node test/mailer.test.js"
+  },
+  "dependencies": {
+    "nodemailer": "10.0.10",
+    "smtp-server": "3.19.13"
+  },
+  "devDependencies": {
+    "mailauth": "5.0.3"
+  },
+  "overrides": {
+    "joi": "18.2.9",
+    "nodemailer": "$nodemailer"
+  }
+}

@@ -1,0 +1,30 @@
+import { loadConfig } from './config.js';
+import { openDb } from './db.js';
+import { createApi } from './api.js';
+import { createWorker } from './worker.js';
+import { createEventSender } from './events.js';
+import { createInbound } from './inbound.js';
+const config = loadConfig();
+const db = openDb(config.dataDir);
+const worker = createWorker({ config, db });
+const events = createEventSender({ config, db });
+const api = createApi({ config, db, worker });
+const inbound = config.inboundEnabled ? createInbound({ config, db }) : null;
+api.listen(config.httpPort, config.httpHost, () => console.log(`Mailer API on http://${config.httpHost}:${config.httpPort}`));
+inbound?.listen(config.inboundPort, config.inboundHost, () => console.log(`Bounce receiver on ${config.inboundHost}:${config.inboundPort}`));
+worker.start();
+events.start();
+let closing = false;
+async function shutdown() {
+  if (closing) return;
+  closing = true;
+  console.log('Stopping: finishing deliveries in progress…');
+  api.close();
+  inbound?.close();
+  await worker.stop();
+  events.stop();
+  db.close();
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

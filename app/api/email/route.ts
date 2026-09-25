@@ -1,8 +1,13 @@
-import {emailOwner,emailJson,audit,counts,dispatch,testSend,loadSettings,settingsComplete,readiness,normalizeEmail,validEmail,cleanName,EMAIL_LIMITS,type Campaign} from '@/lib/email-campaigns';
+import {emailOwner,emailJson,audit,counts,dispatch,testSend,loadSettings,settingsComplete,readiness,mailerRequest,normalizeEmail,validEmail,cleanName,EMAIL_LIMITS,type Campaign} from '@/lib/email-campaigns';
 import {database} from '@/lib/storage';
 const isId=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const str=(v:unknown,max:number)=>typeof v==='string'&&v.length<=max?v:null;
-export async function GET(req:Request){const a=await emailOwner();if(a.response)return a.response;try{const db=database(),id=new URL(req.url).searchParams.get('campaign');
+export async function GET(req:Request){const a=await emailOwner();if(a.response)return a.response;try{const db=database(),params=new URL(req.url).searchParams,id=params.get('campaign');
+ if(params.get('mailer')==='status'){
+  if(!readiness().provider)return emailJson({connected:false,error:'MAILER_URL and MAILER_SECRET are not set on this deployment.'});
+  try{const r=await mailerRequest('/v1/stats');const d=await r.json().catch(()=>null) as {message?:string}|null;return r.ok?emailJson({connected:true,stats:d}):emailJson({connected:false,error:r.status===401?'The mail server rejected the signature: MAILER_SECRET differs between the portal and the mail server.':d?.message||`Mail server returned ${r.status}.`})}
+  catch{return emailJson({connected:false,error:'The mail server could not be reached at MAILER_URL.'})}
+ }
  if(id){const c=await db.prepare('SELECT * FROM email_campaigns WHERE id=?').bind(id).first<Campaign>();if(!c)return emailJson({error:'Campaign not found.'},404);
   const failures=(await db.prepare("SELECT email,error FROM email_recipients WHERE campaign=? AND status='failed' ORDER BY updated DESC LIMIT 20").bind(id).all()).results;
   return emailJson({campaign:c,counts:await counts(id),failures})}
@@ -54,7 +59,7 @@ try{const v=await req.json();if(!v||typeof v!=='object'||Array.isArray(v))throw 
  if(d.action==='clearRecipients'){const blocked=draftOnly();if(blocked)return blocked;await db.prepare('DELETE FROM email_recipients WHERE campaign=?').bind(c.id).run();await audit(actor,'clearRecipients',c.id);return emailJson({ok:true})}
  if(d.action==='test'){const blocked=draftOnly()||stale();if(blocked)return blocked;
   const settings=await loadSettings();if(!settingsComplete(settings))return emailJson({error:'Complete the sender settings first.'},409);
-  const ready=readiness();if(!ready.provider||!ready.links)return emailJson({error:'RESEND_API_KEY and EMAIL_LINK_SECRET must be set as Worker secrets on this deployment.'},503);
+  const ready=readiness();if(!ready.provider||!ready.links)return emailJson({error:'Connect your mail server first: set MAILER_URL, MAILER_SECRET and EMAIL_LINK_SECRET on this deployment.'},503);
   if(!c.subject.trim()||!c.html.trim())return emailJson({error:'Add a subject and message body first.'},409);
   const to=normalizeEmail(a.member.email);if(!validEmail(to))return emailJson({error:'Your account has no email address for a test send.'},409);
   const r=await testSend(c,settings,to,new URL(req.url).origin);
@@ -63,7 +68,7 @@ try{const v=await req.json();if(!v||typeof v!=='object'||Array.isArray(v))throw 
   return emailJson({ok:true,to})}
  if(d.action==='approve'){const blocked=draftOnly()||stale();if(blocked)return blocked;
   if(c.tested_revision!==c.revision)return emailJson({error:'Send yourself a test of this exact version before sending.'},409);
-  const settings=await loadSettings(),ready=readiness();if(!settingsComplete(settings)||!ready.provider||!ready.links)return emailJson({error:'Sender settings or provider secrets are incomplete.'},409);
+  const settings=await loadSettings(),ready=readiness();if(!settingsComplete(settings)||!ready.provider||!ready.links)return emailJson({error:'Sender settings or mail server connection are incomplete.'},409);
   await db.prepare("UPDATE email_recipients SET status='suppressed' WHERE campaign=? AND status='queued' AND email IN (SELECT email FROM email_suppressions)").bind(c.id).run();
   const total=(await counts(c.id)).queued||0;if(!total)return emailJson({error:'Add recipients first.'},409);
   if(d.confirmCount!==total)return emailJson({error:`Type the exact number of recipients (${total.toLocaleString()}) to confirm.`},400);
