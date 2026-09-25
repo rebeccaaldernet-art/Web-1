@@ -7,7 +7,7 @@ import {Textarea} from '@/components/ui/textarea';
 type Settings={from_name:string;from_email:string;reply_to:string;postal_address:string};
 type Summary={id:string;name:string;subject:string;state:string;revision:number;tested_revision:number;created:number;updated:number};
 type Campaign=Summary&{html:string;text:string};
-type Overview={settings:Settings|null;campaigns:Summary[];suppressed:number;readiness:{provider:boolean;links:boolean};limits:{recipientsPerCampaign:number;recipientsPerUpload:number};ownerEmail:string|null;audit:{action:string;campaign:string;detail:string;created:number}[]};
+type Overview={settings:Settings|null;campaigns:Summary[];suppressed:number;readiness:{provider:boolean;links:boolean;cloudflare:boolean};limits:{recipientsPerCampaign:number;recipientsPerUpload:number};ownerEmail:string|null;audit:{action:string;campaign:string;detail:string;created:number}[]};
 type Detail={campaign:Campaign;counts:Record<string,number>;failures:{email:string;error:string}[]};
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- API responses are typed at each call site
 async function response(r:Response):Promise<any>{const d=await r.json().catch(()=>({}));if(!r.ok)throw Error((d as {error?:string}).error||'Request failed.');return d}

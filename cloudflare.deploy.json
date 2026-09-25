@@ -1,0 +1,8 @@
+{
+  "$comment": "Settings for publishing the portal as your own Cloudflare Worker (see docs/cloudflare-deploy.md). None of these values are secret.",
+  "name": "ra-studio-portal",
+  "d1_database_name": "ra-studio",
+  "d1_database_id": "aa735f4d-8d39-437c-86cf-c6d8762fe90f",
+  "r2_bucket_name": "",
+  "cloudflare_email": false
+}

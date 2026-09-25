@@ -16,6 +16,8 @@ The mailer runs on its own Linux server because Cloudflare Workers, which run th
 
 Gmail and Google Workspace mailboxes are capped at roughly 500–2,000 messages per day, so they are not used for bulk sending.
 
+To publish the portal on your own Cloudflare account, including sign-in and optional Cloudflare Email Service for Compose, see [`cloudflare-deploy.md`](cloudflare-deploy.md).
+
 ## Portal setup (secrets on the portal deployment)
 1. `MAILER_URL`: the HTTPS address of your mail server, for example `https://mail.example.com`.
 2. `MAILER_SECRET`: the same 32+ character value as `MAILER_SECRET` in the mailer's `.env`. It signs requests in both directions.

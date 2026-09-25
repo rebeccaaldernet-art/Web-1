@@ -1,4 +1,4 @@
-import {emailOwner,emailJson,audit,sendBatch,loadSettings,readiness,fromHeader,htmlToText,normalizeEmail,validEmail,EMAIL_LIMITS} from '@/lib/email-campaigns';
+import {emailOwner,emailJson,audit,sendDirect,loadSettings,readiness,fromHeader,htmlToText,normalizeEmail,validEmail,EMAIL_LIMITS} from '@/lib/email-campaigns';
 import {database} from '@/lib/storage';
 // One-off emails from the Compose screen. Bulk sends belong in campaigns (consent, unsubscribe, suppression),
 // so a message is capped at 50 addresses and the workspace at 1,000 direct recipients per 24 hours.
@@ -27,7 +27,7 @@ export async function POST(req:Request){
  const text=htmlToText(html);if(!subject&&!text)return emailJson({error:'Write a subject or a message before sending.'},400);
  try{const db=database(),now=Date.now();
   const settings=await loadSettings();if(!settings||!validEmail(settings.from_email)||!settings.from_name)return emailJson({error:'Set your sender name and address in Email settings first.'},409);
-  if(!readiness().provider)return emailJson({error:'Your mail server is not connected yet (set MAILER_URL and MAILER_SECRET on this deployment).'},503);
+  if(!readiness().provider&&!readiness().cloudflare)return emailJson({error:'No email sender is connected yet. Connect your mail server or Cloudflare Email Service in Email settings.'},503);
   const existing=await db.prepare('SELECT id,status,error,updated FROM email_messages WHERE id=?').bind(d.id).first<Row>();
   const retryable=existing&&(existing.status==='failed'||existing.status==='sending'&&existing.updated<now-STUCK_MS);
   if(existing&&!retryable)return existing.status==='sent'?emailJson({ok:true,id:existing.id,status:'sent'}):emailJson({error:'This email is already being sent.'},409);
@@ -41,7 +41,7 @@ export async function POST(req:Request){
   }
   const m=await db.prepare('SELECT * FROM email_messages WHERE id=?').bind(d.id).first<{to_list:string;cc_list:string;bcc_list:string;subject:string;html:string;text:string;from_address:string}>();
   const ccList=JSON.parse(m!.cc_list),bccList=JSON.parse(m!.bcc_list);
-  const result=await sendBatch([{from:m!.from_address,to:JSON.parse(m!.to_list),...(ccList.length?{cc:ccList}:{}),...(bccList.length?{bcc:bccList}:{}),subject:m!.subject||'(no subject)',html:m!.html||'<p></p>',text:m!.text,...(settings.reply_to?{reply_to:settings.reply_to}:{})}],'direct:'+d.id);
+  const result=await sendDirect({fromName:settings.from_name,fromEmail:settings.from_email,to:JSON.parse(m!.to_list),cc:ccList,bcc:bccList,replyTo:settings.reply_to,subject:m!.subject||'(no subject)',html:m!.html||'<p></p>',text:m!.text},'direct:'+d.id);
   if(result.ok){await db.prepare("UPDATE email_messages SET status='sent',provider_id=?,updated=? WHERE id=?").bind(result.ids[0]||null,Date.now(),d.id).run();await audit(a.member.id,'directSend','',`${count} recipients`);return emailJson({ok:true,id:d.id,status:'sent'})}
   await db.prepare("UPDATE email_messages SET status='failed',error=?,updated=? WHERE id=?").bind(result.error,Date.now(),d.id).run();
   return emailJson({error:'Not sent: '+result.error,id:d.id,status:'failed',retry:result.retry},502);

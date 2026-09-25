@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
+import cloudflareDeploy from "./cloudflare.deploy.json";
 import { readExecutionProfile } from "./scripts/execution-profile.mjs";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -12,6 +13,21 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const managedLinux = readExecutionProfile() === "managed-linux";
+
+// DEPLOY_TARGET=cloudflare (pnpm run build:cloudflare) builds for your own Cloudflare account instead of Sites:
+// real D1/R2 names from cloudflare.deploy.json, and sign-in through verified Cloudflare Access tokens.
+const cloudflareTarget = process.env.DEPLOY_TARGET === "cloudflare";
+const cloudflareConfig = {
+  name: cloudflareDeploy.name,
+  main: "vinext/server/fetch-handler",
+  compatibility_flags: ["nodejs_compat"],
+  vars: { AUTH_MODE: "cloudflare-access" },
+  // Keep CF_ACCESS_* and other variables set in the Cloudflare dashboard when a new version is deployed.
+  keep_vars: true,
+  d1_databases: [{ binding: d1 || "DB", database_name: cloudflareDeploy.d1_database_name, database_id: cloudflareDeploy.d1_database_id, migrations_dir: "drizzle" }],
+  r2_buckets: cloudflareDeploy.r2_bucket_name ? [{ binding: r2 || "BUCKET", bucket_name: cloudflareDeploy.r2_bucket_name }] : [],
+  ...(cloudflareDeploy.cloudflare_email ? { send_email: [{ name: "EMAIL" }] } : {}),
+};
 
 const localBindingConfig = {
   main: "vinext/server/fetch-handler",
@@ -61,7 +77,7 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
+        config: cloudflareTarget ? cloudflareConfig : localBindingConfig,
       }),
     ],
   };

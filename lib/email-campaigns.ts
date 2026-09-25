@@ -7,10 +7,13 @@ import {database} from './storage';
 export const EMAIL_LIMITS={recipientsPerCampaign:200000,directRecipients:50,directRecipientsPerDay:1000,recipientsPerUpload:1000,batchSize:100,batchesPerDispatch:5,subject:200,html:200000,text:100000,name:120,leaseMs:120000,maxAttempts:5};
 export const emailJson=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 export async function emailOwner(){const a=await workspaceAccess();if(a.response)return a;if(a.member.role!=='owner')return {response:emailJson({error:'Email campaigns are restricted to the workspace owner.'},403)};return a}
-type Secrets={MAILER_URL?:string;MAILER_SECRET?:string;EMAIL_LINK_SECRET?:string};
+// EMAIL is the optional Cloudflare Email Service send_email binding. Cloudflare allows it for one-off (transactional)
+// mail only, so it is used for Compose when no own mail server is connected, and never for campaigns.
+type CloudflareEmail={send(m:{from:{name:string;email:string};to:string[];cc?:string[];bcc?:string[];replyTo?:string;subject:string;html?:string;text?:string}):Promise<{messageId?:string}>};
+type Secrets={MAILER_URL?:string;MAILER_SECRET?:string;EMAIL_LINK_SECRET?:string;EMAIL?:CloudflareEmail};
 export const secrets=()=>env as unknown as Secrets;
 const validMailerUrl=(v?:string)=>{try{const u=new URL(v||'');return u.protocol==='https:'||u.protocol==='http:'&&['localhost','127.0.0.1'].includes(u.hostname)}catch{return false}};
-export function readiness(){const s=secrets();return {provider:validMailerUrl(s.MAILER_URL)&&typeof s.MAILER_SECRET==='string'&&s.MAILER_SECRET.length>=32,links:typeof s.EMAIL_LINK_SECRET==='string'&&s.EMAIL_LINK_SECRET.length>=32}}
+export function readiness(){const s=secrets();return {provider:validMailerUrl(s.MAILER_URL)&&typeof s.MAILER_SECRET==='string'&&s.MAILER_SECRET.length>=32,links:typeof s.EMAIL_LINK_SECRET==='string'&&s.EMAIL_LINK_SECRET.length>=32,cloudflare:typeof s.EMAIL?.send==='function'}}
 export type Settings={from_name:string;from_email:string;reply_to:string;postal_address:string};
 export type Campaign={id:string;name:string;subject:string;html:string;text:string;state:'draft'|'sending'|'paused'|'complete'|'cancelled';revision:number;tested_revision:number;link_origin:string;created:number;updated:number;owner:string};
 export type Recipient={id:number;campaign:string;email:string;name:string;status:string;lease:string|null;attempts:number};
@@ -57,6 +60,18 @@ export async function sendBatch(messages:Record<string,unknown>[],idempotencyKey
  if(r.ok&&Array.isArray(body?.data)&&body.data.length===messages.length)return {ok:true,ids:body.data.map(d=>String(d?.id||''))};
  const error=String(body?.message||`Mail server returned ${r.status}.`).slice(0,300);
  return {ok:false,retry:r.status===429||r.status>=500||r.status===401||r.ok,status:r.status,error};
+}
+export type DirectMessage={fromName:string;fromEmail:string;to:string[];cc:string[];bcc:string[];replyTo:string;subject:string;html:string;text:string};
+// Composed mail: your own mail server when connected, otherwise Cloudflare Email Service if its binding is configured.
+export async function sendDirect(m:DirectMessage,idempotencyKey:string):Promise<SendResult&{via?:string}>{
+ const ready=readiness();
+ if(ready.provider)return {...await sendBatch([{from:fromHeader({from_name:m.fromName,from_email:m.fromEmail}),to:m.to,...(m.cc.length?{cc:m.cc}:{}),...(m.bcc.length?{bcc:m.bcc}:{}),subject:m.subject,html:m.html,text:m.text,...(m.replyTo?{reply_to:m.replyTo}:{})}],idempotencyKey),via:'mailer'};
+ const cf=secrets().EMAIL;
+ if(!ready.cloudflare||!cf)return {ok:false,retry:false,status:0,error:'No email sender is connected. Connect your mail server (MAILER_URL, MAILER_SECRET) or Cloudflare Email Service (EMAIL binding).'};
+ try{
+  const r=await cf.send({from:{name:m.fromName.replace(/["\r\n]/g,''),email:m.fromEmail},to:m.to,...(m.cc.length?{cc:m.cc}:{}),...(m.bcc.length?{bcc:m.bcc}:{}),...(m.replyTo?{replyTo:m.replyTo}:{}),subject:m.subject,html:m.html,text:m.text});
+  return {ok:true,ids:[String(r?.messageId||'')],via:'cloudflare'};
+ }catch(e){const error=String((e as Error)?.message||e).slice(0,300);return {ok:false,retry:/rate|limit|timeout|temporar|unavailable/i.test(error),status:0,error:'Cloudflare Email Service: '+error}}
 }
 async function buildMessages(c:Campaign,settings:Settings,rows:Recipient[]){
  return Promise.all(rows.map(async r=>{const link=await unsubscribeUrl(c.link_origin,r.id);const m=renderMessage(c,settings,r,link);return {from:fromHeader(settings),to:[r.email],subject:m.subject,html:m.html,text:m.text,...(settings.reply_to?{reply_to:settings.reply_to}:{}),headers:{'List-Unsubscribe':`<${link}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click'}}}));

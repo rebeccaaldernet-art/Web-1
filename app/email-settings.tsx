@@ -4,7 +4,7 @@ import {toast} from 'sonner';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 export type EmailSettingsValue={from_name:string;from_email:string;reply_to:string;postal_address:string};
-type Overview={settings:EmailSettingsValue|null;suppressed:number;readiness:{provider:boolean;links:boolean};audit:{action:string;campaign:string;detail:string;created:number}[]};
+type Overview={settings:EmailSettingsValue|null;suppressed:number;readiness:{provider:boolean;links:boolean;cloudflare:boolean};audit:{action:string;campaign:string;detail:string;created:number}[]};
 type MailerStatus={connected:boolean;error?:string;stats?:{today:number;dailyCap:number;deliveries:Record<string,number>}};
 const empty:EmailSettingsValue={from_name:'',from_email:'',reply_to:'',postal_address:''};
 const label='block text-sm font-medium mb-1';
@@ -26,7 +26,8 @@ export default function EmailSettings({onSaved}:{onSaved:()=>void}){
    <p className="text-sm">Email is delivered by your own mail server (the <code>mailer/</code> service in this project), not by an outside email company.</p>
    <ul className="list-disc pl-5 text-sm space-y-1 mt-2">
    <li>{ready.provider?'✓':'✗'} <code>MAILER_URL</code> and <code>MAILER_SECRET</code>: the HTTPS address of your mail server and the shared secret (the same 32+ character value on both sides). Required to send anything.</li>
-   <li>{ready.links?'✓':'✗'} <code>EMAIL_LINK_SECRET</code>: at least 32 random characters, used to sign unsubscribe links. Required for campaigns.</li></ul>
+   <li>{ready.links?'✓':'✗'} <code>EMAIL_LINK_SECRET</code>: at least 32 random characters, used to sign unsubscribe links. Required for campaigns.</li>
+   <li>{ready.cloudflare?'✓':'–'} Cloudflare Email Service (<code>EMAIL</code> binding), optional: sends composed email when your own mail server is not connected. Cloudflare allows it for one-off email only, so campaigns always need your own mail server.</li></ul>
    {status&&(status.connected?<div className="mt-3 text-sm"><strong>✓ Connected.</strong> Today: {n(status.stats?.today)} of {n(status.stats?.dailyCap)} recipients (daily warm-up limit) · Waiting: {n((status.stats?.deliveries?.queued||0)+(status.stats?.deliveries?.deferred||0))} · Delivered: {n(status.stats?.deliveries?.sent)} · Bounced: {n(status.stats?.deliveries?.bounced)} · Failed: {n(status.stats?.deliveries?.failed)}</div>:<div className="error-banner mt-3" role="alert">{status.error}</div>)}</div>
   <div className="tool-card"><h2>Sender</h2><p className="text-sm">Used for every email you compose and every campaign.</p><div className="grid gap-3 sm:grid-cols-2 mt-3">
    <label><span className={label}>From name</span><Input value={settings.from_name} onChange={e=>setSettings({...settings,from_name:e.target.value})}/></label>
